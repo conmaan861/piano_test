@@ -11,16 +11,20 @@ revoke all on table public.practice_studios from anon, authenticated;
 grant select on table public.practice_studios to anon, authenticated;
 grant insert, update on table public.practice_studios to authenticated;
 
-create policy "Public can view the piano studio"
+drop policy if exists "Public can view the piano studio" on public.practice_studios;
+drop policy if exists "Owner can view the piano studio" on public.practice_studios;
+create policy "Owner can view the piano studio"
 on public.practice_studios for select
-to anon, authenticated
-using (true);
+to authenticated
+using (owner_id = auth.uid());
 
+drop policy if exists "Owner can create the piano studio" on public.practice_studios;
 create policy "Owner can create the piano studio"
 on public.practice_studios for insert
 to authenticated
 with check (owner_id = auth.uid());
 
+drop policy if exists "Owner can update the piano studio" on public.practice_studios;
 create policy "Owner can update the piano studio"
 on public.practice_studios for update
 to authenticated
@@ -51,11 +55,20 @@ revoke all on table public.teacher_notes from anon, authenticated;
 grant select on table public.teacher_notes to anon, authenticated;
 grant update on table public.teacher_notes to authenticated;
 
-create policy "Public can view teacher notes"
+drop policy if exists "Public can view teacher notes" on public.teacher_notes;
+drop policy if exists "Owner can view teacher notes" on public.teacher_notes;
+create policy "Owner can view teacher notes"
 on public.teacher_notes for select
-to anon, authenticated
-using (true);
+to authenticated
+using (
+  exists (
+    select 1 from public.practice_studios
+    where slug = teacher_notes.studio_slug
+      and owner_id = auth.uid()
+  )
+);
 
+drop policy if exists "Connor can complete teacher notes" on public.teacher_notes;
 create policy "Connor can complete teacher notes"
 on public.teacher_notes for update
 to authenticated
@@ -156,11 +169,70 @@ begin
 end;
 $$;
 
+create or replace function public.get_teacher_studio(
+  p_slug text,
+  p_access_code text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, private, extensions
+as $$
+declare
+  v_hash text;
+  v_result jsonb;
+begin
+  select code_hash into v_hash
+  from private.studio_teacher_secrets
+  where studio_slug = p_slug;
+
+  if v_hash is null or extensions.crypt(p_access_code, v_hash) <> v_hash then
+    raise exception 'Invalid teacher access code';
+  end if;
+
+  select jsonb_build_object('data', data, 'updated_at', updated_at)
+  into v_result
+  from public.practice_studios
+  where slug = p_slug;
+
+  return v_result;
+end;
+$$;
+
+create or replace function public.get_teacher_notes(
+  p_slug text,
+  p_access_code text
+) returns setof public.teacher_notes
+language plpgsql
+security definer
+set search_path = public, private, extensions
+as $$
+declare
+  v_hash text;
+begin
+  select code_hash into v_hash
+  from private.studio_teacher_secrets
+  where studio_slug = p_slug;
+
+  if v_hash is null or extensions.crypt(p_access_code, v_hash) <> v_hash then
+    raise exception 'Invalid teacher access code';
+  end if;
+
+  return query
+  select * from public.teacher_notes
+  where studio_slug = p_slug
+  order by created_at desc;
+end;
+$$;
+
 revoke all on function public.add_teacher_note(text, text, text, text, date) from public;
 revoke all on function public.set_teacher_access_code(text, text) from public;
 revoke all on function public.delete_teacher_note(text, text, bigint) from public;
+revoke all on function public.get_teacher_studio(text, text) from public;
+revoke all on function public.get_teacher_notes(text, text) from public;
 grant execute on function public.add_teacher_note(text, text, text, text, date) to anon, authenticated;
 grant execute on function public.set_teacher_access_code(text, text) to authenticated;
 grant execute on function public.delete_teacher_note(text, text, bigint) to anon, authenticated;
+grant execute on function public.get_teacher_studio(text, text) to anon, authenticated;
+grant execute on function public.get_teacher_notes(text, text) to anon, authenticated;
 
 -- Set the teacher access code privately in Supabase; never commit it here.
