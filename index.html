@@ -57,4 +57,30 @@ $('exportBackup').onclick=()=>{const data={app:'Tempo Piano Studio',schema:3,exp
 $('resetData').onclick=()=>{if(prompt('Type RESET to permanently erase all local sessions, repertoire, assignments and settings:')==='RESET'){Object.values(KEY).forEach(k=>localStorage.removeItem(k));localStorage.removeItem(AKEY);sessions=[];pieces=[];assignments=[];settings={name:'',teacherName:'',lastLesson:'',nextLesson:'',dailyGoal:45,defaultMinutes:30,accent:'violet'};render();toast('All local data reset')}};
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>document.querySelectorAll('.modal').forEach(m=>m.classList.remove('open')));switchView(currentView);
 })();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(()=>{
+const CLOUD_URL='https://iftanbhnuozhdxrhoxlg.supabase.co';
+const CLOUD_KEY='sb_publishable_rVYllZ5DWyzDKvCzwA9mhg_-RjSPgMj';
+const STUDIO_SLUG='conmaan861';
+const cloud=window.supabase.createClient(CLOUD_URL,CLOUD_KEY);
+const cloudKeys=['pianoSessions','pianoRepertoire','tempoSettings','tempoAssignments'];
+let cloudUser=null,cloudReady=false,savingCloud=false;
+const snapshot=()=>Object.fromEntries(cloudKeys.map(k=>[k,read(k,k==='tempoSettings'?{}:[])]));
+const putLocal=data=>cloudKeys.forEach(k=>localStorage.setItem(k,JSON.stringify(data?.[k]??(k==='tempoSettings'?{}:[]))));
+const syncStyle=document.createElement('style');syncStyle.textContent=`.cloud-pill{display:flex;align-items:center;gap:8px}.cloud-pill .status{white-space:nowrap}.auth-card{margin-top:14px}.auth-row{display:flex;gap:8px;flex-wrap:wrap}.auth-row .field{flex:1;min-width:190px}.viewer-lock{opacity:.48;pointer-events:none}.cloud-note{font-size:10px;color:var(--muted);line-height:1.5;margin-top:10px}`;document.head.append(syncStyle);
+document.querySelector('.topbar').insertAdjacentHTML('beforeend','<div class="cloud-pill"><span class="status" id="cloudStatus">Connecting…</span><button class="ghost" id="cloudAuth">Owner sign in</button></div>');
+document.querySelector('#view-settings .heading').insertAdjacentHTML('afterend',`<div class="card auth-card"><span class="label">CLOUD ACCOUNT</span><h3 id="cloudTitle">Owner sign in</h3><div class="auth-row" id="authFields"><input class="field" id="cloudEmail" type="email" placeholder="Email"><input class="field" id="cloudPassword" type="password" minlength="6" placeholder="Password"><button class="btn" id="signInCloud">Sign in</button><button class="ghost" id="signUpCloud">Create owner account</button></div><div class="cloud-note" id="cloudMessage">Visitors can view the tracker. Sign in as the owner to add or edit practice.</div></div>`);
+const writeControls=()=>[...document.querySelectorAll('#newSession,#startTimer,#pauseTimer,#stopTimer,#addPiece,#addAssignment,.entry .tools,.piece .tools,.assignment .tools,#view-settings .settings-grid,#view-settings .backup-card,#view-settings .danger')];
+function applyMode(){const owner=!!cloudUser;writeControls().forEach(el=>el.classList.toggle('viewer-lock',!owner));$('cloudStatus').textContent=owner?'Owner · synced':'Viewer · read only';$('cloudAuth').textContent=owner?'Sign out':'Owner sign in';$('cloudTitle').textContent=owner?'Cloud sync active':'Owner sign in';$('authFields').style.display=owner?'none':'flex';$('cloudMessage').textContent=owner?'Changes are saved online for your teacher to view.':'Visitors can view the tracker. Sign in as the owner to add or edit practice.'}
+async function loadCloud(){const {data,error}=await cloud.from('practice_studios').select('data').eq('slug',STUDIO_SLUG).maybeSingle();if(error){$('cloudStatus').textContent='Cloud setup needed';$('cloudMessage').textContent=error.message;return}if(data?.data&&!sessionStorage.getItem('tempoCloudLoaded')){putLocal(data.data);sessionStorage.setItem('tempoCloudLoaded','1');location.reload();return}cloudReady=true;applyMode()}
+async function saveCloud(){if(!cloudUser||!cloudReady||savingCloud)return;savingCloud=true;$('cloudStatus').textContent='Saving…';const {error}=await cloud.from('practice_studios').upsert({slug:STUDIO_SLUG,owner_id:cloudUser.id,data:snapshot(),updated_at:new Date().toISOString()},{onConflict:'slug'});savingCloud=false;$('cloudStatus').textContent=error?'Sync error':'Owner · synced';if(error)console.error(error)}
+const localSave=save;save=function(){localSave();saveCloud()};
+async function signIn(){const email=$('cloudEmail').value.trim(),password=$('cloudPassword').value;const {error}=await cloud.auth.signInWithPassword({email,password});$('cloudMessage').textContent=error?error.message:'Signed in.'}
+async function signUp(){const email=$('cloudEmail').value.trim(),password=$('cloudPassword').value;if(!email||password.length<6){$('cloudMessage').textContent='Enter an email and a password of at least 6 characters.';return}const {data,error}=await cloud.auth.signUp({email,password,options:{emailRedirectTo:'https://conmaan861.github.io/piano_test/'}});$('cloudMessage').textContent=error?error.message:(data.session?'Owner account created.':'Check your email to confirm the owner account, then sign in.')}
+$('signInCloud').onclick=signIn;$('signUpCloud').onclick=signUp;$('cloudAuth').onclick=async()=>{if(cloudUser)await cloud.auth.signOut();else{switchView('settings');$('cloudEmail').focus()}};
+cloud.auth.onAuthStateChange(async(_event,session)=>{cloudUser=session?.user||null;applyMode();if(cloudUser&&cloudReady)await saveCloud()});
+cloud.auth.getSession().then(({data})=>{cloudUser=data.session?.user||null;loadCloud()});
+})();
 </script></body></html>
