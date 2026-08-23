@@ -291,6 +291,18 @@ body.is-offline .sync-dot { background: #f1c66f; box-shadow: 0 0 0 4px #f1c66f22
   .wrapped-card h3 { font-size: 36px; }
 }
 
+/* iOS home-screen apps can report a zero safe-area inset while using a
+   translucent status bar. Keep the app header below the system controls. */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) and (max-width: 760px) {
+    .topbar {
+      min-height: max(calc(68px + env(safe-area-inset-top)), 110px);
+      padding-top: max(calc(12px + env(safe-area-inset-top)), 54px) !important;
+      padding-bottom: 12px !important;
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .metronome-orb { transition: none; }
 }

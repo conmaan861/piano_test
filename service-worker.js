@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tempo-studio-v7';
+const CACHE_NAME = 'tempo-studio-v8';
 const APP_SHELL = [
   './',
   './index.html',
