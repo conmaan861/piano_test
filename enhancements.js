@@ -228,6 +228,14 @@
         </div>
         <button class="btn" type="submit">Save block</button>
       </form>
+    </div>
+    <div class="modal" id="copySessionModal">
+      <form id="copySessionForm">
+        <button type="button" class="close" data-close aria-label="Close dialog">×</button>
+        <span class="eyebrow">PRACTICE SESSION</span><h2>Copy to another date</h2>
+        <input name="id" type="hidden"><label>NEW DATE<input class="field" name="date" type="date" required></label>
+        <button class="btn" type="submit">Copy session</button>
+      </form>
     </div>`);
 
   let lastModalTrigger = null;
@@ -705,16 +713,31 @@
   duplicateSession = function copySessionToDate(id) {
     const source = sessions.find(session => session.id === id);
     if (!source) return;
-    const targetDate = prompt('Copy this session to which date? Use YYYY-MM-DD.', selected);
-    if (!targetDate) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || Number.isNaN(dateObj(targetDate).getTime())) {
-      toast('Enter a valid date in YYYY-MM-DD format');
-      return;
-    }
+    const form = document.getElementById('copySessionForm');
+    form.elements.id.value = String(id);
+    form.elements.date.value = selected;
+    modal('copySessionModal');
+  };
+  document.querySelector('#copySessionModal [data-close]').onclick = () => modal('copySessionModal', false);
+  document.getElementById('copySessionModal').onclick = event => { if (event.target.id === 'copySessionModal') modal('copySessionModal', false); };
+  document.getElementById('copySessionForm').onsubmit = event => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const source = sessions.find(session => String(session.id) === String(form.get('id')));
+    if (!source) return;
+    const targetDate = String(form.get('date'));
     sessions.push({ ...source, id: uid(), date: targetDate });
     selected = targetDate;
+    modal('copySessionModal', false);
     render();
     toast('Session copied to ' + targetDate);
+  };
+  deleteSession = function enhancedDeleteSession(id) {
+    if (!confirm('Delete this practice session?')) return;
+    sessions = sessions.filter(session => session.id !== id);
+    questions = questions.filter(question => String(question.sourceSessionId) !== String(id));
+    render();
+    toast('Session removed');
   };
 
   function renderPracticePlan() {
@@ -740,6 +763,7 @@
           <button class="icon" type="button" aria-label="Log this block" onclick="logPlanBlock('${block.id}')">＋</button>
           <button class="icon" type="button" aria-label="Duplicate block" onclick="duplicatePlanBlock('${block.id}')">⧉</button>
           <button class="icon" type="button" aria-label="Edit block" onclick="openPlanBlock('${block.id}')">✎</button>
+          <button class="icon" type="button" aria-label="Delete block" onclick="deletePlanBlock('${block.id}')">×</button>
         </div>
       </article>`;
     }).join('') : '<div class="plan-empty">No blocks planned for this day. Add a short block when a specific intention would help.</div>';
@@ -783,6 +807,12 @@
     plans.push({ ...block, id: String(uid()), completed: false, order: plans.filter(item => item.date === block.date).length });
     render();
     toast('Practice block duplicated');
+  };
+  window.deletePlanBlock = id => {
+    if (!confirm('Delete this planned practice block?')) return;
+    plans = plans.filter(block => String(block.id) !== String(id));
+    render();
+    toast('Practice block removed');
   };
   window.logPlanBlock = id => {
     const block = plans.find(item => String(item.id) === String(id));
@@ -842,7 +872,7 @@
     ].map(item => `<div class="prep-item"><strong>${item[0]}</strong><span>${item[1]}</span></div>`).join('');
 
     document.getElementById('lessonRecords').innerHTML = lessons.length ? [...lessons].sort((a, b) => b.date.localeCompare(a.date)).map(lesson => `
-      <article class="lesson-row"><time>${dateObj(lesson.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</time><div><h4>${esc(lesson.teacher || settings.teacherName || 'Lesson')}</h4><p>${esc(lesson.summary || lesson.feedback || 'No summary recorded.')}${lesson.nextLessonDate ? ` · Next lesson ${esc(lesson.nextLessonDate)}` : ''}</p></div><button class="icon" data-student-only aria-label="Edit lesson record" onclick="openLessonRecord('${lesson.id}')">✎</button></article>`).join('') : '<p class="small">No lesson records saved yet.</p>';
+      <article class="lesson-row"><time>${dateObj(lesson.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</time><div><h4>${esc(lesson.teacher || settings.teacherName || 'Lesson')}</h4><p>${esc(lesson.summary || lesson.feedback || 'No summary recorded.')}${lesson.nextLessonDate ? ` · Next lesson ${esc(lesson.nextLessonDate)}` : ''}</p></div><div class="tools" data-student-only><button class="icon" aria-label="Edit lesson record" onclick="openLessonRecord('${lesson.id}')">✎</button><button class="icon" aria-label="Delete lesson record" onclick="deleteLessonRecord('${lesson.id}')">×</button></div></article>`).join('') : '<p class="small">No lesson records saved yet.</p>';
 
     const reportQuestions = questions.filter(question => !question.answered || (question.createdAt >= range.from && question.createdAt <= range.to));
     document.getElementById('reportQuestions').innerHTML = reportQuestions.length ? reportQuestions.map(question => `
@@ -871,6 +901,12 @@
   }
 
   window.openLessonRecord = openLessonRecord;
+  window.deleteLessonRecord = id => {
+    if (!confirm('Delete this lesson record?')) return;
+    lessons = lessons.filter(lesson => String(lesson.id) !== String(id));
+    render();
+    toast('Lesson record removed');
+  };
   window.answerPracticeQuestion = id => {
     if (!document.body.classList.contains('student-mode')) return;
     const answer = prompt('Record the teacher answer or lesson note:');
@@ -1010,7 +1046,7 @@
     }).join('');
     const next = milestoneDefinitions.find(definition => !definition.met(metrics));
     const latest = [...milestoneDefinitions].reverse().find(definition => definition.met(metrics));
-    document.getElementById('milestonePeekTitle').textContent = latest ? `${latest.title} unlocked` : 'Your first milestone is waiting';
+    document.getElementById('milestonePeekTitle').textContent = latest ? `${latest.title} recorded` : 'Your first milestone is waiting';
     document.getElementById('milestonePeekCopy').textContent = next ? `Next: ${next.title} · ${next.progress(metrics)}` : 'All current milestones are recorded.';
   }
 
@@ -1078,7 +1114,7 @@
       ['Time in the music', String(total), 'minutes of focused practice.', change === null ? 'This is the beginning of your weekly rhythm.' : change >= 0 ? `${change}% more time at the piano than the previous week.` : `${Math.abs(change)}% less than the previous week — recovery is part of progress too.`, total ? `About ${Math.max(1, Math.round(total / 4))} four-minute songs` : 'A fresh week awaits'],
       ['Active practice days', String(activeDates.length), `active day${activeDates.length === 1 ? '' : 's'}.`, bestDay ? `${bestDay[0] === today() ? 'Today' : dateObj(bestDay[0]).toLocaleDateString(undefined, { weekday: 'long' })} had the most recorded practice with ${bestDay[1]} minutes.` : 'One recorded practice day is enough to begin this comparison.', `${streak}-day longest run this week`],
       ['Primary focus', topFocus ? topFocus[0] : '—', topFocus ? 'received the most practice time.' : 'No leading focus was recorded.', topPiece ? `${topPiece.title} received the most attention: ${topPiece.minutes} minutes.` : 'Link sessions to repertoire pieces to show where practice time was spent.', topFocus ? `${topFocus[1]} focused minutes` : 'No focus recorded'],
-      ['Tempo journey', tempoLift?.lift > 0 ? `+${tempoLift.lift}` : '—', tempoLift?.lift > 0 ? 'BPM was your biggest lift.' : 'Your tempo story is ready to begin.', tempoLift?.lift > 0 ? `${tempoLift.session.focus}: ${tempoLift.session.bpmStart} → ${tempoLift.session.bpmEnd} BPM.` : 'Use the metronome and log starting and ending tempo to make progress visible.', `${notesCompleted} teacher notes completed · ${questions} questions saved`],
+      ['Tempo journey', tempoLift?.lift > 0 ? `+${tempoLift.lift}` : '—', tempoLift?.lift > 0 ? 'BPM was your biggest lift.' : 'Your tempo story is ready to begin.', tempoLift?.lift > 0 ? `${tempoLift.session.focus}: ${tempoLift.session.bpmStart} → ${tempoLift.session.bpmEnd} BPM.` : 'Use the metronome and log starting and ending tempo to make progress visible.', `${notesCompleted} teacher note${notesCompleted === 1 ? '' : 's'} completed · ${questions} question${questions === 1 ? '' : 's'} saved`],
       ['Weekly pattern', null, weekPattern, total ? `You completed ${completedAssignments} assignment${completedAssignments === 1 ? '' : 's'} overall during the current practice record.` : 'No score or penalty is applied to an irregular week. The next entry begins a new record.', `${practiceMetrics().longestStreak}-day longest run`]
     ];
     document.getElementById('wrappedStage').innerHTML = cards.map((card, index) => wrappedCard(...card, index, cards.length)).join('');
@@ -1143,6 +1179,22 @@
   const previousRender = render;
   render = function enhancedRender() {
     previousRender();
+    document.querySelectorAll('.entry .tools').forEach(tools => {
+      const [copy, edit, remove] = tools.querySelectorAll('button');
+      if (copy) copy.setAttribute('aria-label', 'Copy session to another date');
+      if (edit) edit.setAttribute('aria-label', 'Edit practice session');
+      if (remove) remove.setAttribute('aria-label', 'Delete practice session');
+    });
+    document.querySelectorAll('.piece .tools').forEach(tools => {
+      const [edit, remove] = tools.querySelectorAll('button');
+      if (edit) edit.setAttribute('aria-label', 'Edit repertoire piece');
+      if (remove) remove.setAttribute('aria-label', 'Remove repertoire piece');
+    });
+    document.querySelectorAll('.assignment .tools').forEach(tools => {
+      const [edit, remove] = tools.querySelectorAll('button');
+      if (edit) edit.setAttribute('aria-label', 'Edit assignment');
+      if (remove) remove.setAttribute('aria-label', 'Delete assignment');
+    });
     if (document.body.classList.contains('viewer-mode')) {
       document.getElementById('cloudStatus').innerHTML = `<span class="sync-dot"></span>${window.tempoTeacherUnlocked ? 'Teacher · private' : 'Teacher · locked'}`;
     }
