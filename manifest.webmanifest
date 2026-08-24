@@ -1,15 +1,15 @@
 {
   "name": "Tempo Piano Studio",
   "short_name": "Tempo",
-  "description": "Connor's piano practice studio with cloud sync, teacher notes, milestones and weekly replays.",
+  "description": "A quiet, focused piano practice studio.",
   "id": "/piano_test/",
   "start_url": "/piano_test/",
   "scope": "/piano_test/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#10121a",
-  "theme_color": "#10121a",
-  "categories": ["education", "music", "productivity"],
+  "background_color": "#101114",
+  "theme_color": "#101114",
+  "categories": ["education", "music"],
   "icons": [
     {
       "src": "./icon-192.png",
@@ -26,15 +26,15 @@
   ],
   "shortcuts": [
     {
-      "name": "Log practice",
-      "short_name": "Log practice",
-      "url": "/piano_test/?action=practice",
+      "name": "Start practice",
+      "short_name": "Practice",
+      "url": "/piano_test/#today",
       "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Weekly Replay",
-      "short_name": "Replay",
-      "url": "/piano_test/?view=wrapped",
+      "name": "View progress",
+      "short_name": "Progress",
+      "url": "/piano_test/#progress",
       "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
     }
   ]
