@@ -1,0 +1,29 @@
+.countdown-setup {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 4px;
+}
+
+.countdown-setup select { min-width: 116px; }
+
+.countdown-setup label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.countdown-setup input { width: 70px; }
+
+.timer.complete {
+  box-shadow: 0 0 0 1px var(--green), 0 0 35px #62dea820;
+}
+
+.timer.complete .clock { color: var(--green); }
+
+@media (max-width: 760px) {
+  .timer-actions { align-items: center; }
+  .countdown-setup { width: 100%; }
+}
