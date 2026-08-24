@@ -1,8 +1,9 @@
-const CACHE_NAME = 'tempo-studio-v11';
+const CACHE_NAME = 'tempo-studio-v12';
 const APP_SHELL = [
   './',
   './index.html',
   './enhancements.css',
+  './apple-ui.css',
   './enhancements.js',
   './manifest.webmanifest',
   './icon-192.png',
