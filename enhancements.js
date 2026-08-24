@@ -93,6 +93,13 @@
   const moreNav = document.getElementById('moreNav');
   document.querySelector('#moreModal .more-links [data-go="settings"]').insertAdjacentHTML('beforebegin', '<button class="ghost" data-go="wrapped">Weekly Replay <span>›</span></button>');
 
+  const hero = document.querySelector('#view-today .hero');
+  const heroAction = document.createElement('div');
+  heroAction.className = 'hero-action';
+  heroAction.innerHTML = '<div class="greyhound-mascot" aria-hidden="true"><img src="./greyhound-mascot-sprite.png" alt=""></div>';
+  heroAction.append(document.getElementById('newSession'));
+  hero.append(heroAction);
+
   document.getElementById('view-settings').insertAdjacentHTML('beforebegin', `
     <section class="view" id="view-wrapped">
       <div class="wrapped-head">

@@ -1,5 +1,26 @@
 .hero h2 { font-size: clamp(38px, 5vw, 60px) !important; line-height: .98 !important; letter-spacing: -.035em !important; }
 .hero h2 em { color: #adc8ef !important; }
+.hero-action { display: grid; justify-items: center; align-self: end; flex: 0 0 auto; }
+.greyhound-mascot {
+  width: 126px;
+  height: 188px;
+  overflow: hidden;
+  position: relative;
+  margin: 0 0 -8px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.greyhound-mascot img {
+  position: absolute;
+  top: -48px;
+  left: 0;
+  width: 600%;
+  max-width: none;
+  height: auto;
+  animation: greyhound-idle 4.8s steps(6) infinite;
+  image-rendering: pixelated;
+}
+@keyframes greyhound-idle { to { transform: translateX(-100%); } }
 
 .metronome-panel {
   grid-column: 1 / -1;
@@ -280,6 +301,9 @@ body.is-offline .sync-dot { background: #f1c66f; box-shadow: 0 0 0 4px #f1c66f22
   .teacher-unlock { grid-template-columns: 1fr; }
   .prep-grid { grid-template-columns: 1fr; }
   .lesson-row { grid-template-columns: 1fr; }
+  .hero-action { grid-template-columns: auto 1fr; align-items: end; justify-items: start; gap: 10px; margin-top: 8px; }
+  .greyhound-mascot { width: 92px; height: 132px; margin: 0 0 -2px; }
+  .greyhound-mascot img { top: -35px; }
 }
 
 @media (max-width: 480px) {
@@ -305,4 +329,5 @@ body.is-offline .sync-dot { background: #f1c66f; box-shadow: 0 0 0 4px #f1c66f22
 
 @media (prefers-reduced-motion: reduce) {
   .metronome-orb { transition: none; }
+  .greyhound-mascot img { animation: none; }
 }

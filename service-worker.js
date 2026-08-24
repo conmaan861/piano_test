@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tempo-studio-v8';
+const CACHE_NAME = 'tempo-studio-v11';
 const APP_SHELL = [
   './',
   './index.html',
@@ -6,7 +6,8 @@ const APP_SHELL = [
   './enhancements.js',
   './manifest.webmanifest',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './greyhound-mascot-sprite.png'
 ];
 
 self.addEventListener('install', event => {
