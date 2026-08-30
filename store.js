@@ -16,7 +16,8 @@ export const KEYS = {
   selectedDate: 'tempoSelectedDate',
   view: 'tempoView',
   role: 'tempoRole',
-  cloudUpdatedAt: 'tempoCloudUpdatedAt'
+  cloudUpdatedAt: 'tempoCloudUpdatedAt',
+  cloudDirtyAt: 'tempoCloudDirtyAt'
 };
 
 export const CLOUD_KEYS = [
@@ -120,6 +121,7 @@ export function loadState() {
     view: read(KEYS.view, 'today'),
     role: localStorage.getItem(KEYS.role) || 'student',
     cloudUpdatedAt: localStorage.getItem(KEYS.cloudUpdatedAt) || '',
+    cloudDirtyAt: localStorage.getItem(KEYS.cloudDirtyAt) || '',
     teacherNotes: []
   };
 }

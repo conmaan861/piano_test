@@ -1,8 +1,8 @@
 import {
   KEYS, iso, today, dateAtNoon, uid, loadState, persistState,
   snapshotForCloud, hydrateCloudSnapshot, makeFixture
-} from './store.js';
-import { TempoAudio, MetronomeEngine, calculateTapTempo } from './audio.js';
+} from './store.js?v=14';
+import { TempoAudio, MetronomeEngine, calculateTapTempo } from './audio.js?v=14';
 
 const CLOUD_URL = 'https://iftanbhnuozhdxrhoxlg.supabase.co';
 const CLOUD_KEY = 'sb_publishable_rVYllZ5DWyzDKvCzwA9mhg_-RjSPgMj';
@@ -24,6 +24,12 @@ const audio = new TempoAudio();
 let cloud = null;
 let cloudUser = null;
 let cloudReady = false;
+let cloudSaveInFlight = false;
+let cloudSavePending = false;
+let cloudBootstrapPromise = null;
+let cloudPullInFlight = false;
+let lastCloudPullAt = 0;
+let lastCloudError = '';
 let saveTimer = null;
 let timerTicker = null;
 let countTicker = null;
@@ -36,6 +42,12 @@ let teacherTab = 'overview';
 let taps = [];
 let activeBeat = -1;
 let metronomeWasRunning = false;
+if (preview && new URLSearchParams(location.search).get('preview') === 'account') {
+  cloudUser = { email: 'pianist@example.com' };
+  cloudReady = true;
+  state.cloudUpdatedAt = new Date().toISOString();
+  state.cloudDirtyAt = '';
+}
 
 const icons = {
   today: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12a8 8 0 1 0 16 0 8 8 0 0 0-16 0Z"/><path d="M12 8v4l2.6 1.7"/></svg>',
@@ -99,11 +111,21 @@ function notify(message) {
 }
 
 function save({ cloudSync = true } = {}) {
+  if (cloudSync && !preview) {
+    state.cloudDirtyAt = new Date().toISOString();
+    localStorage.setItem(KEYS.cloudDirtyAt, state.cloudDirtyAt);
+  }
   if (!preview) persistState(state);
   if (cloudSync && cloudUser && state.role === 'student' && cloudReady && !preview) {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveCloud, 650);
+    queueCloudSave();
   }
+}
+
+function queueCloudSave(delay = 280) {
+  clearTimeout(saveTimer);
+  syncState.classList.remove('error');
+  syncState.textContent = 'Changes pending…';
+  saveTimer = setTimeout(() => saveCloud(), delay);
 }
 
 function setView(view, { focus = true } = {}) {
@@ -256,8 +278,19 @@ function renderProgress() {
     ${tempoMoves.length ? `<section class="section">${sectionHeader('Recent movement')}${tempoMoves.slice(0,4).map(item => `<div class="attention-row"><span><strong>${escapeHtml(pieceName(item.piece.id))}</strong></span><span class="tempo-movement"><strong>${item.from} → ${item.to}</strong><span class="row-meta">BPM</span></span></div>`).join('')}</section>` : ''}`;
 }
 
+function formatSyncMoment(value) {
+  if (!value) return 'Cloud studio is being prepared';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Cloud studio connected';
+  const day = date.toDateString() === new Date().toDateString() ? 'today' : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return `Last synced ${day} at ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
+
 function renderMore() {
-  const account = cloudUser ? `<h2>${escapeHtml(cloudUser.email || 'Tempo account')}</h2><p>Your studio is saved locally and synced to the cloud.</p><button class="button secondary" data-action="sign-out">Sign out</button>` : `<h2>Your studio, on every device.</h2><p>Practice data already stays on this device. Sign in to sync it securely.</p><button class="button primary" data-action="account">Sign in or create account</button>`;
+  const syncCopy = lastCloudError
+    ? 'Sync needs attention. Your data is still safe on this device.'
+    : state.cloudDirtyAt ? 'Changes on this device are waiting to sync' : formatSyncMoment(state.cloudUpdatedAt);
+  const account = cloudUser ? `<h2>${escapeHtml(cloudUser.email || 'Tempo account')}</h2><p id="accountSyncStatus">${escapeHtml(syncCopy)}</p><div class="action-row"><button class="button primary" data-action="sync-now" type="button">Sync now</button><button class="button secondary" data-action="sign-out" type="button">Sign out</button></div>` : `<h2>Your studio, on every device.</h2><p>Practice data already stays on this device. Sign in with the same account on every device to sync it securely.</p><button class="button primary" data-action="account">Sign in or create account</button>`;
   const goal = Number(state.settings.dailyGoal) || 45;
   screen.innerHTML = `
     ${pageHeader('Studio', 'More', 'Settings and tools that stay out of the practice flow.')}
@@ -724,6 +757,7 @@ document.addEventListener('click', event => {
   else if (action === 'edit-settings') openSettingsDialog();
   else if (action === 'teacher-code') openTeacherCodeDialog();
   else if (action === 'account') openAccountDialog();
+  else if (action === 'sync-now') syncNow({ announce: true });
   else if (action === 'sign-up') accountAction('signUp');
   else if (action === 'sign-out') signOut();
   else if (action === 'teacher') { state.view = 'teacher'; state.role = 'teacher'; save({ cloudSync: false }); renderNavigation(); renderTeacher(); loadTeacherStudio(); }
@@ -876,7 +910,8 @@ async function importStudio(file) {
     if (!confirm('Import this Tempo studio? A local recovery snapshot of the current studio will be kept.')) return;
     persistState(state);
     hydrateCloudSnapshot(state, data);
-    renderView(); notify('Studio imported');
+    save();
+    renderView(); notify('Studio imported and queued for sync');
   } catch { notify('That file is not a valid Tempo backup'); }
 }
 
@@ -889,63 +924,181 @@ async function initCloud() {
     cloud = window.supabase.createClient(CLOUD_URL, CLOUD_KEY);
     const { data } = await cloud.auth.getSession();
     cloudUser = data.session?.user || null;
-    cloud.auth.onAuthStateChange((_event, session) => {
+    cloud.auth.onAuthStateChange((event, session) => {
       cloudUser = session?.user || null;
+      if (event === 'SIGNED_OUT') {
+        cloudReady = false;
+        cloudSavePending = false;
+        lastCloudError = '';
+      } else if (cloudUser && ['SIGNED_IN', 'INITIAL_SESSION', 'TOKEN_REFRESHED'].includes(event)) {
+        setTimeout(() => bootstrapCloudSession(), 0);
+      }
       updateSyncLabel();
       if (state.view === 'more') renderMore();
     });
-    if (cloudUser) {
-      state.role = 'student';
-      await loadStudentStudio();
-      await loadTeacherNotes();
-    } else {
-      cloudReady = false;
-    }
+    if (cloudUser) await bootstrapCloudSession();
+    else cloudReady = false;
     updateSyncLabel();
   } catch (error) {
     console.warn('Tempo cloud is unavailable; the local studio remains active.', error);
+    lastCloudError = 'Cloud connection unavailable';
     syncState.textContent = 'Local studio';
   }
 }
 
+async function bootstrapCloudSession() {
+  if (!cloud || !cloudUser) return { ok: false };
+  if (cloudBootstrapPromise) return cloudBootstrapPromise;
+  cloudBootstrapPromise = (async () => {
+    state.role = 'student';
+    const result = await loadStudentStudio();
+    if (result.ok && (!result.found || result.mergedLocal)) await saveCloud();
+    if (result.ok) await loadTeacherNotes();
+    return result;
+  })().finally(() => { cloudBootstrapPromise = null; });
+  return cloudBootstrapPromise;
+}
+
 async function loadStudentStudio() {
-  if (!cloud || !cloudUser) return;
+  if (!cloud || !cloudUser) return { ok: false };
+  if (cloudPullInFlight) return { ok: false, busy: true };
+  cloudPullInFlight = true;
   syncState.textContent = 'Syncing…';
-  const { data, error } = await cloud.from('practice_studios').select('data,updated_at').eq('slug', STUDIO_SLUG).maybeSingle();
-  if (error) { syncState.textContent = 'Local studio'; return; }
-  if (data?.data) {
+  try {
+    const { data, error } = await cloud.from('practice_studios').select('data,updated_at').eq('slug', STUDIO_SLUG).maybeSingle();
+    if (error) {
+      lastCloudError = error.message || 'Cloud read failed';
+      updateSyncLabel();
+      return { ok: false, error };
+    }
+    lastCloudPullAt = Date.now();
+    lastCloudError = '';
+    cloudReady = true;
+    if (!data?.data) {
+      updateSyncLabel();
+      return { ok: true, found: false, mergedLocal: true };
+    }
     const remoteTime = new Date(data.updated_at || 0).getTime();
     const localTime = new Date(state.cloudUpdatedAt || 0).getTime();
-    if (!state.sessions.length || remoteTime > localTime) {
-      const localData = snapshotForCloud(state);
+    const dirtyTime = new Date(state.cloudDirtyAt || 0).getTime();
+    const localData = snapshotForCloud(state);
+    const localDiffers = JSON.stringify(localData) !== JSON.stringify(data.data);
+    const preferLocal = dirtyTime > remoteTime || (remoteTime <= localTime && localDiffers);
+    let mergedLocal = preferLocal;
+    if (preferLocal || !state.sessions.length || remoteTime > localTime) {
       const merged = { ...data.data };
       Object.keys(localData).forEach(key => {
-        if (Array.isArray(localData[key]) && Array.isArray(data.data[key])) {
-          const remoteIds = new Set(data.data[key].map(item => item?.id).filter(Boolean).map(String));
-          merged[key] = [...data.data[key], ...localData[key].filter(item => !item?.id || !remoteIds.has(String(item.id)))];
-        } else if (key === KEYS.settings) merged[key] = { ...(localData[key] || {}), ...(data.data[key] || {}) };
+        if (Array.isArray(localData[key])) {
+          const remoteItems = Array.isArray(data.data[key]) ? data.data[key] : [];
+          if (preferLocal) {
+            const localIds = new Set(localData[key].map(item => item?.id).filter(Boolean).map(String));
+            const remoteOnly = remoteItems.filter(item => !item?.id || !localIds.has(String(item.id)));
+            if (remoteOnly.length) mergedLocal = true;
+            merged[key] = [...localData[key], ...remoteOnly];
+          } else {
+            const remoteIds = new Set(remoteItems.map(item => item?.id).filter(Boolean).map(String));
+            const localOnly = localData[key].filter(item => !item?.id || !remoteIds.has(String(item.id)));
+            if (localOnly.length) mergedLocal = true;
+            merged[key] = [...remoteItems, ...localOnly];
+          }
+        } else if (key === KEYS.settings) {
+          merged[key] = preferLocal
+            ? { ...(data.data[key] || {}), ...(localData[key] || {}) }
+            : { ...(localData[key] || {}), ...(data.data[key] || {}) };
+        }
       });
       hydrateCloudSnapshot(state, merged);
       state.cloudUpdatedAt = data.updated_at;
       localStorage.setItem(KEYS.cloudUpdatedAt, data.updated_at || '');
+      if (!mergedLocal) {
+        state.cloudDirtyAt = '';
+        localStorage.removeItem(KEYS.cloudDirtyAt);
+      }
       renderView();
+    } else if (!localDiffers) {
+      state.cloudDirtyAt = '';
+      localStorage.removeItem(KEYS.cloudDirtyAt);
     }
+    updateSyncLabel();
+    return { ok: true, found: true, mergedLocal };
+  } catch (error) {
+    lastCloudError = error?.message || 'Cloud read failed';
+    console.warn('Cloud refresh failed. Your local studio remains safe.', error);
+    updateSyncLabel();
+    return { ok: false, error };
+  } finally {
+    cloudPullInFlight = false;
   }
-  cloudReady = true;
-  updateSyncLabel();
 }
 
 async function saveCloud() {
-  if (!cloud || !cloudUser || !cloudReady || state.role !== 'student') return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!cloud || !cloudUser || !cloudReady || state.role !== 'student' || preview) return false;
+  if (cloudSaveInFlight) {
+    cloudSavePending = true;
+    return false;
+  }
+  cloudSaveInFlight = true;
+  cloudSavePending = false;
   syncState.textContent = 'Saving…';
   const stamp = new Date().toISOString();
-  const { error } = await cloud.from('practice_studios').upsert({ slug: STUDIO_SLUG, owner_id: cloudUser.id, data: snapshotForCloud(state), updated_at: stamp }, { onConflict: 'slug' });
-  if (error) {
-    syncState.textContent = 'Sync paused'; syncState.classList.add('error');
-    console.warn('Cloud save failed.', error);
-  } else {
-    state.cloudUpdatedAt = stamp; localStorage.setItem(KEYS.cloudUpdatedAt, stamp); updateSyncLabel();
+  let saved = false;
+  try {
+    const payload = snapshotForCloud(state);
+    const { error } = await cloud.from('practice_studios').upsert({ slug: STUDIO_SLUG, owner_id: cloudUser.id, data: payload, updated_at: stamp }, { onConflict: 'slug' });
+    if (error) {
+      lastCloudError = error.message || 'Cloud save failed';
+      console.warn('Cloud save failed.', error);
+    } else {
+      saved = true;
+      lastCloudError = '';
+      state.cloudUpdatedAt = stamp;
+      state.cloudDirtyAt = '';
+      localStorage.setItem(KEYS.cloudUpdatedAt, stamp);
+      localStorage.removeItem(KEYS.cloudDirtyAt);
+    }
+  } catch (error) {
+    lastCloudError = error?.message || 'Cloud save failed';
+    console.warn('Cloud save failed. Your local studio remains safe.', error);
+  } finally {
+    cloudSaveInFlight = false;
+    updateSyncLabel();
+    if (state.view === 'more' && backdrop.hidden) renderMore();
+    if (cloudSavePending) {
+      cloudSavePending = false;
+      queueCloudSave(0);
+    }
   }
+  return saved;
+}
+
+async function syncNow({ announce = false } = {}) {
+  if (!cloudUser) {
+    if (announce) notify('Sign in to sync this studio');
+    return false;
+  }
+  if (!navigator.onLine) {
+    lastCloudError = 'This device is offline';
+    updateSyncLabel();
+    if (announce) notify('You’re offline. Tempo will retry when you reconnect.');
+    return false;
+  }
+  const result = await loadStudentStudio();
+  if (!result.ok) {
+    if (announce && !result.busy) notify('Sync could not finish. Your local data is safe.');
+    return false;
+  }
+  const saved = await saveCloud();
+  if (announce) notify(saved ? 'Studio synced across devices' : 'Sync is already finishing');
+  return saved;
+}
+
+async function refreshCloudFromForeground() {
+  if (!cloudUser || !cloudReady || state.role !== 'student' || document.visibilityState !== 'visible') return;
+  if (Date.now() - lastCloudPullAt < 12000 || cloudPullInFlight || cloudSaveInFlight) return;
+  const result = await loadStudentStudio();
+  if (result.ok && result.mergedLocal) queueCloudSave(0);
 }
 
 async function loadTeacherNotes() {
@@ -1030,9 +1183,7 @@ async function accountAction(method) {
   if (result.data.session) {
     cloudReady = false;
     closeDialog();
-    await loadStudentStudio();
-    await loadTeacherNotes();
-    await saveCloud();
+    await bootstrapCloudSession();
     renderMore();
     notify('Studio connected');
   }
@@ -1041,15 +1192,29 @@ async function accountAction(method) {
 
 async function signOut() {
   if (!cloud) return;
-  await cloud.auth.signOut(); cloudUser = null; cloudReady = false; updateSyncLabel(); renderMore(); notify('Signed out; local studio remains available');
+  await cloud.auth.signOut();
+  cloudUser = null;
+  cloudReady = false;
+  cloudSavePending = false;
+  lastCloudError = '';
+  updateSyncLabel(); renderMore(); notify('Signed out; local studio remains available');
 }
 
 function updateSyncLabel() {
   syncState.classList.remove('error');
   if (preview) syncState.textContent = 'Preview studio';
   else if (state.role === 'teacher' && sessionStorage.getItem('tempoTeacherCode')) syncState.textContent = 'Teacher · private';
-  else if (cloudUser && cloudReady) syncState.textContent = 'Studio · synced';
+  else if (lastCloudError) { syncState.textContent = 'Sync needs attention'; syncState.classList.add('error'); }
+  else if (cloudUser && cloudSaveInFlight) syncState.textContent = 'Saving…';
+  else if (cloudUser && !cloudReady) syncState.textContent = 'Connecting…';
+  else if (cloudUser && state.cloudDirtyAt) syncState.textContent = 'Changes pending…';
+  else if (cloudUser && cloudReady && state.cloudUpdatedAt) syncState.textContent = 'Studio · synced';
+  else if (cloudUser && cloudReady) syncState.textContent = 'Setting up sync…';
   else syncState.textContent = 'Local studio';
+  const accountStatus = $('#accountSyncStatus');
+  if (accountStatus && cloudUser) accountStatus.textContent = lastCloudError
+    ? 'Sync needs attention. Your data is still safe on this device.'
+    : state.cloudDirtyAt ? 'Changes on this device are waiting to sync' : formatSyncMoment(state.cloudUpdatedAt);
 }
 
 function restorePractice() {
@@ -1065,16 +1230,27 @@ function restorePractice() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
+  if (document.visibilityState !== 'visible') {
+    if (saveTimer && cloudUser && cloudReady) saveCloud();
+    return;
+  }
   if (state.timer.phase === 'running') {
     if (remainingMs() <= 0) completeSession(true);
     else { renderPracticeActive(); startTimerTicker(); }
   } else if (state.timer.phase === 'count-in') {
     if (Number(state.timer.countInEndsAt) <= Date.now()) beginRunning(); else renderCountIn();
   }
+  refreshCloudFromForeground();
 });
 
+window.addEventListener('focus', refreshCloudFromForeground);
+window.addEventListener('online', () => syncNow({ announce: false }));
+window.addEventListener('pagehide', () => {
+  if (!preview) persistState(state);
+  if (saveTimer && cloudUser && cloudReady) saveCloud();
+});
 window.addEventListener('beforeunload', () => { if (!preview) persistState(state); });
+setInterval(refreshCloudFromForeground, 60000);
 
 async function init() {
   const hashView = location.hash.slice(1);

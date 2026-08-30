@@ -1,11 +1,11 @@
-const CACHE_NAME = 'tempo-studio-v13';
+const CACHE_NAME = 'tempo-studio-v14';
 const APP_SHELL = [
   './',
   './index.html',
   './app.css',
-  './app.js',
-  './store.js',
-  './audio.js',
+  './app.js?v=14',
+  './store.js?v=14',
+  './audio.js?v=14',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
